@@ -140,7 +140,8 @@ function Close-With($ctl, $result) { $script:dlgResult = $result; $ctl.FindForm(
 $Tips = New-Object System.Windows.Forms.ToolTip
 
 # Themed message. Returns 'OK', 'Cancel', 'Yes' or 'No'.
-function Show($text, $buttons = 'OK', $icon = 'Information') {
+function Show($text, $buttons = 'OK', $icon = 'Information', $okLabel = $null) {
+    # returns 'OK' / 'Cancel' / 'Yes' / 'No'; $okLabel only changes the first button's caption
     $f = New-Dialog $Title 460 10
     $tone = switch ($icon) { 'Warning' { $Pal.Amber } 'Error' { $Pal.Red } 'Question' { $Pal.Blue } default { $Pal.Green } }
     $mark = New-Object System.Windows.Forms.Label -Property @{ Location = '22,22'; Size = New-Object System.Drawing.Size(4, 22); BackColor = $tone }
@@ -155,12 +156,17 @@ function Show($text, $buttons = 'OK', $icon = 'Information') {
     for ($i = $labels.Count - 1; $i -ge 0; $i--) {
         $x -= 100
         $kind = if ($i -eq 0) { 'primary' } else { 'ghost' }
-        $f.Controls.Add((New-Btn $labels[$i] $x $y 92 34 $kind { Close-With $this $this.Tag.text }))
-        $x -= 0
+        $caption = if ($i -eq 0 -and $okLabel) { $okLabel } else { $labels[$i] }
+        $bw2 = [Math]::Max(92, [System.Windows.Forms.TextRenderer]::MeasureText($caption, $Typ.Button).Width + 34)
+        if ($bw2 -gt 92) { $x -= ($bw2 - 92) }
+        $btn = New-Btn $caption $x $y $bw2 34 $kind { Close-With $this $this.Tag.result }
+        $btn.Tag.result = $labels[$i]
+        $f.Controls.Add($btn)
     }
     $f.Add_KeyDown({ if ($_.KeyCode -eq 'Enter') { Close-With $this.Controls[0] $labels[0] } elseif ($_.KeyCode -eq 'Escape') { Close-With $this.Controls[0] $labels[-1] } })
     $f.ClientSize = New-Object System.Drawing.Size(460, ($y + 54))
     $f.Add_Shown({ $this.Activate() })
+    if ($PreviewDialog -eq 'confirm') { Save-Preview $f $PreviewPng; exit 0 }
     [void]$f.ShowDialog()
     return $script:dlgResult
 }
@@ -369,6 +375,7 @@ function Save-Preview($form, $path) {
     $form.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle(0, 0, $form.Width, $form.Height))); $bmp.Save($path); $form.Close()
 }
 if ($PreviewPng -and $PreviewDialog) {
+    if ($PreviewDialog -eq 'confirm') { Show "Switch to spaceX-renew@19th/month?`n`nCodex will be closed and reopened. A Codex task that is still running stops." 'OKCancel' 'Question' 'Switch' }
     $dlg = if ($PreviewDialog -eq 'quit') { Ask-QuitCodex } else { Edit-Resets @{ resets = @(@{ type = 'Full reset'; expires = (Get-Date).AddDays(22).ToString('s') }) } 'li7' }
     Save-Preview $dlg $PreviewPng; exit 0
 }
@@ -588,21 +595,39 @@ function Fill-Cards {
     $form.ClientSize = New-Object System.Drawing.Size($W, ($note.Bottom + 22))
 }
 
+function Stop-Codex {
+    # ends Codex completely (window and tray); only called after the user confirmed
+    Get-CodexProcs | Where-Object { $_.MainWindowHandle -ne 0 } | ForEach-Object { [void]$_.CloseMainWindow() }
+    Start-Sleep -Milliseconds 800
+    if (Get-CodexProcs) {
+        Write-Log ("Ending Codex processes: " + ((Get-CodexProcs | ForEach-Object { "$($_.Name)#$($_.Id)" }) -join ', '))
+        Get-CodexProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-CodexProcs) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 400 }
+    Start-Sleep -Seconds 1   # let Windows release file handles before the sync reads Codex's files
+    return -not (Get-CodexProcs)
+}
+
 function Invoke-Go($s) {
     $name = Seat-Name $s $cfg
-    $msg = if ($s.active) { "Sync projects now?`n`nCodex closes, the project list from $name is copied to all seats, and Codex reopens here." }
-           elseif ($s.slot) { "Switch to $name?`n`nCodex closes, projects are synced to all seats, and Codex reopens in $name." }
-           else { "Switch to $name?`n`nThis seat has no saved login yet. After Codex reopens, choose $name in Codex's workspace menu once. From then on the switch is automatic." }
-    if ((Show $msg 'OKCancel' 'Question') -ne 'OK') { return }
+    # one confirmation, and only when Codex is running (closing it stops a running task)
+    if (Get-CodexProcs) {
+        $first = if ($s.active) { "Sync projects to all seats?" } else { "Switch to ${name}?" }
+        $msg = "$first`n`nCodex will be closed and reopened. A Codex task that is still running stops."
+        if (-not $s.active -and -not $s.slot) { $msg += "`n`nThis seat has no saved login yet, so after Codex reopens, choose ${name} in Codex's workspace menu once." }
+        $okText = if ($s.active) { 'Sync now' } else { 'Switch' }
+        if ((Show $msg 'OKCancel' 'Question' $okText) -ne 'OK') { return }
+    }
     $form.Hide()
-    if (-not (Close-Codex)) { Write-Log 'Cancelled while waiting for Codex to close'; $form.Show(); return }
+    if (-not (Stop-Codex)) { Show 'Codex could not be closed. Nothing was changed.' 'OK' 'Error' | Out-Null; $form.Show(); return }
     $res = Run-Sync
     $sw = Run-Switch $s.account     # also saves the current seat's login for next time
     Write-Log "Switch to '$name' -> sync $res, switch $sw"
     Open-Codex
     if ($sw -eq 'noslot' -or $sw -eq 'failed') {
         Start-Sleep -Seconds 3
-        Show ("One last step: in Codex, open the workspace menu and choose $name.`n`nNext time Seat Picker switches there automatically.") 'OK' 'Information' | Out-Null
+        Show ("One last step: in Codex, open the workspace menu and choose ${name}.`n`nNext time Seat Picker switches there automatically.") 'OK' 'Information' | Out-Null
     }
     $form.Close()
 }

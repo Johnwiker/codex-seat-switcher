@@ -375,8 +375,8 @@ function Save-Preview($form, $path) {
     $form.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle(0, 0, $form.Width, $form.Height))); $bmp.Save($path); $form.Close()
 }
 if ($PreviewPng -and $PreviewDialog) {
-    if ($PreviewDialog -eq 'confirm') { Show "Switch to spaceX-renew@19th/month?`n`nCodex will be closed and reopened. A Codex task that is still running stops." 'OKCancel' 'Question' 'Switch' }
-    $dlg = if ($PreviewDialog -eq 'quit') { Ask-QuitCodex } else { Edit-Resets @{ resets = @(@{ type = 'Full reset'; expires = (Get-Date).AddDays(22).ToString('s') }) } 'li7' }
+    if ($PreviewDialog -eq 'confirm') { Show "Switch to Northwind Labs?`n`nCodex will be closed and reopened. A Codex task that is still running stops." 'OKCancel' 'Question' 'Switch' }
+    $dlg = if ($PreviewDialog -eq 'quit') { Ask-QuitCodex } else { Edit-Resets @{ resets = @(@{ type = 'Full reset'; expires = (Get-Date).AddDays(22).ToString('s') }) } 'Acme Studio' }
     Save-Preview $dlg $PreviewPng; exit 0
 }
 

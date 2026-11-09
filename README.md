@@ -54,7 +54,7 @@ with seats you are entitled to use; it does not pool or extend usage limits.
 ## Install
 
 ```powershell
-git clone https://github.com/<you>/codex-seat-switcher.git
+git clone https://github.com/Johnwiker/codex-seat-switcher.git
 cd codex-seat-switcher
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```

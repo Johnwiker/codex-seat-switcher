@@ -1,0 +1,21 @@
+# --- private, never commit ---
+# saved Codex logins (tokens) and their backups
+logins/
+# copies of Codex's state file (project paths, account ids)
+backups/
+# seat names, typed-in resets, sync record, switch history
+seats.json
+last_sync.json
+launcher.log
+
+# --- not part of the app ---
+__pycache__/
+*.pyc
+*.tmp
+*.seat-sync.tmp
+Sync-And-Open-Codex.ps1
+assets/owl.png
+assets/owl.ico
+assets/seat-owl.png
+assets/seat-owl.ico
+assets/make_owl_icon.py

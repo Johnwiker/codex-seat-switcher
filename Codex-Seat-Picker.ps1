@@ -1,7 +1,7 @@
 # Seat Picker  -  dark grey + blue design (compact rows, per-seat actions, drag to reorder)
 # Switch = quit Codex -> sync project layout to all seats -> plant the chosen seat's
 # workspace id + access token (the refresh token is never replaced) -> reopen Codex.
-param([switch]$NoLaunch, [string]$PreviewPng, [string]$PreviewDialog)
+param([switch]$NoLaunch, [string]$PreviewPng, [string]$PreviewDialog, [switch]$Demo)  # -Demo: made-up seats, for screenshots
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -382,6 +382,26 @@ if ($PreviewPng -and $PreviewDialog) {
 
 # ---------------- main window ----------------
 $cfg = Load-Config
+if ($Demo) {
+    # made-up seats for screenshots: nothing is read from or written to Codex or seats.json
+    $Config = Join-Path $env:TEMP 'seat-picker-demo.json'
+    function Get-Seats {
+        $now = [DateTimeOffset]::Now
+        $mk = { param($acc, $active, $used, $resetDays, $seenH, $slot)
+            [pscustomobject]@{ account = $acc; active = $active; projects = 14
+                usage = $(if ($null -ne $used) { [pscustomobject]@{ used_percent = $used; resets_at = $now.AddDays($resetDays).ToUnixTimeSeconds()
+                    seen = $now.AddHours(-$seenH).UtcDateTime.ToString('o'); plan = 'team'; credits = $null; limit_reached = $null; spend_cap = $null } } else { $null })
+                slot = $(if ($slot) { [pscustomobject]@{ access_expires = $now.AddDays(6).ToUnixTimeSeconds() } } else { $null }) } }
+        & $mk 'aaaaaaaa-0000-0000-0000-000000000001' $true 34 4.3 0.1 $true
+        & $mk 'bbbbbbbb-0000-0000-0000-000000000002' $false 92 0.9 20 $true
+        & $mk 'cccccccc-0000-0000-0000-000000000003' $false $null 0 0 $false
+    }
+    $cfg = @{
+        'aaaaaaaa-0000-0000-0000-000000000001' = @{ name = 'Acme Studio'; order = 0; resets = @(@{ type = 'Full reset'; expires = (Get-Date).AddDays(12).ToString('s') }) }
+        'bbbbbbbb-0000-0000-0000-000000000002' = @{ name = 'Northwind Labs'; order = 1; resets = @(@{ type = 'Full reset'; expires = (Get-Date).AddDays(2).ToString('s') }; @{ type = '5-hour reset'; expires = (Get-Date).AddDays(20).ToString('s') }) }
+        'cccccccc-0000-0000-0000-000000000003' = @{ name = 'Personal'; order = 2; resets = @() }
+    }
+}
 $script:seatList = @(Get-Seats)
 $W = 870
 

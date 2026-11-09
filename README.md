@@ -11,7 +11,9 @@ several ChatGPT workspaces ("seats") with one login. With one click it:
 It also shows each seat's last known weekly Codex usage, and keeps a list of the usage-limit resets you type in,
 with a one-click "used" button.
 
-![icon](assets/seat-icon.png)
+![Seat Picker with three seats (demo data)](docs/screenshot.png)
+
+**[Download the latest release](https://github.com/Johnwiker/codex-seat-switcher/releases/latest)** · MIT licence
 
 ## Why
 
@@ -38,7 +40,7 @@ seat once; switch in Codex's menu that time and the picker saves the fresh token
 - Everything stays on your PC. Nothing is sent anywhere.
 - A backup of Codex's state file is made before every sync (`backups/`), and of `auth.json` before every switch
   (`logins/auth-backups/`, last 10 kept).
-- Nothing is written while Codex is running. "Quit Codex for me" ends Codex only when you click it.
+- Nothing is written while Codex is running. If Codex is open, Seat Picker asks once before closing it.
 - `logins/` holds your Codex login data. Treat it like a password. It is listed in `.gitignore`.
 - If a Codex update changes its file formats, the tool stops and changes nothing.
 
@@ -53,13 +55,20 @@ with seats you are entitled to use; it does not pool or extend usage limits.
 
 ## Install
 
-```powershell
-git clone https://github.com/Johnwiker/codex-seat-switcher.git
-cd codex-seat-switcher
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-```
-
-This creates a **Seat Picker** shortcut on your Desktop. Keep the folder outside `AppData` so Explorer can see it.
+1. Download the ZIP from the [latest release](https://github.com/Johnwiker/codex-seat-switcher/releases/latest)
+   (under **Assets**, "Source code (zip)"), or clone the repository:
+   ```powershell
+   git clone https://github.com/Johnwiker/codex-seat-switcher.git
+   ```
+2. Unzip it to a normal folder such as `Documents\codex-seat-switcher`. **Not** inside `AppData`: apps installed
+   from the Microsoft Store can hide files there from Explorer.
+3. In that folder, right-click > **Open in Terminal**, then run:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\install.ps1
+   ```
+   This creates a **Seat Picker** shortcut on your Desktop.
+4. For each seat, switch to it once through Codex's own workspace menu. After that Seat Picker switches
+   automatically.
 
 ## Use
 
@@ -88,3 +97,8 @@ Add `--home <folder>` to work on a copy of the `.codex` folder instead of the re
 | `codex_seat_sync.py` | layout sync, seat switching, usage reading |
 | `install.ps1` | creates the Desktop shortcut |
 | `assets/` | app icon and the script that draws it |
+| `docs/screenshot.png` | made with `Codex-Seat-Picker.ps1 -Demo -PreviewPng docs\screenshot.png` (made-up seats) |
+
+## Licence
+
+[MIT](LICENSE): free to use, change and share, with no warranty.

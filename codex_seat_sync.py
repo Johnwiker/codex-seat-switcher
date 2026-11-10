@@ -322,11 +322,27 @@ def _read_login(path):
     return a
 
 
+def _token_workspace(tok):
+    """The workspace an access token was really issued for (its chatgpt_account_id claim), or None."""
+    import base64
+    try:
+        p = tok.split(".")[1]
+        p += "=" * (-len(p) % 4)
+        return json.loads(base64.urlsafe_b64decode(p)).get("https://api.openai.com/auth", {}).get("chatgpt_account_id")
+    except Exception:
+        return None
+
+
 def save_current_login(home):
-    """Copy the current login file into its seat's slot. Returns the seat id."""
+    """Copy the current login file into the slot of the workspace its access token belongs to.
+    Codex can briefly hold an account_id that does not match its token (e.g. right after it renews
+    the login), so the token's own claim decides the slot, and the saved copy is made consistent."""
     a = _read_login(os.path.join(home, "auth.json"))
     os.makedirs(LOGIN_DIR, exist_ok=True)
-    acc = a["tokens"]["account_id"]
+    acc = _token_workspace(a["tokens"]["access_token"]) or a["tokens"]["account_id"]
+    if acc != a["tokens"]["account_id"]:
+        a = json.loads(json.dumps(a))
+        a["tokens"]["account_id"] = acc
     _write_json(os.path.join(LOGIN_DIR, acc + ".json"), a)
     return acc
 
@@ -348,7 +364,19 @@ def slot_info(acc):
         t = _read_login(p)["tokens"]
     except Abort:
         return None
+    ws = _token_workspace(t["access_token"])
+    if ws and ws != acc:          # a slot whose token belongs to another seat is unusable
+        return None
     return {"access_expires": _jwt_exp(t["access_token"])}
+
+
+def _backup_auth(auth):
+    bdir = os.path.join(LOGIN_DIR, "auth-backups")
+    os.makedirs(bdir, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    shutil.copy2(auth, os.path.join(bdir, f"auth-{stamp}.json"))
+    for old in sorted(os.listdir(bdir))[:-10]:          # keep the last 10 backups
+        os.remove(os.path.join(bdir, old))
 
 
 def cmd_switch(home, target, real):
@@ -357,8 +385,17 @@ def cmd_switch(home, target, real):
         raise Abort("Codex is running. Close Codex completely, then switch.")
     auth = os.path.join(home, "auth.json")
     cur = _read_login(auth)
-    cur_acc = save_current_login(home)
+    cur_acc = save_current_login(home)          # the seat the current token really belongs to
+    repaired = False
+    if cur["tokens"]["account_id"] != cur_acc:      # repair a login file whose seat id != its token's seat
+        _backup_auth(auth)
+        cur = json.loads(json.dumps(cur)); cur["tokens"]["account_id"] = cur_acc
+        _write_json(auth, cur)
+        repaired = True
     if target == cur_acc:
+        if repaired:
+            print("REPAIRED: the login file pointed at another seat; it now matches its token.")
+            return 0
         print("ALREADY: Codex is already signed in to this seat.")
         return 0
     slot = os.path.join(LOGIN_DIR, target + ".json")
@@ -369,14 +406,15 @@ def cmd_switch(home, target, real):
     tgt = _read_login(slot)["tokens"]
     if tgt.get("login_owner_id") != cur["tokens"].get("login_owner_id"):
         raise Abort("The saved login for this seat belongs to a different sign-in. Not switched.")
+    ws = _token_workspace(tgt["access_token"])
+    if ws and ws != target:                    # saved copy holds another seat's token: never plant it
+        os.replace(slot, slot + ".bad")
+        print("NO_SLOT: the saved login for this seat belonged to another seat and was set aside. "
+              "Switch once in Codex's menu; the picker saves a correct one next time.")
+        return 4
     exp = _jwt_exp(tgt["access_token"])
     expired = exp is not None and exp < datetime.datetime.now().timestamp()
-    bdir = os.path.join(LOGIN_DIR, "auth-backups")
-    os.makedirs(bdir, exist_ok=True)
-    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    shutil.copy2(auth, os.path.join(bdir, f"auth-{stamp}.json"))
-    for old in sorted(os.listdir(bdir))[:-10]:          # keep the last 10 backups
-        os.remove(os.path.join(bdir, old))
+    _backup_auth(auth)
     new = json.loads(json.dumps(cur))
     new["tokens"]["account_id"] = tgt["account_id"]
     new["tokens"]["access_token"] = tgt["access_token"]

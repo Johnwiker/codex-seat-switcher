@@ -617,6 +617,10 @@ function Fill-Cards {
 
 function Stop-Codex {
     # ends Codex completely (window and tray); only called after the user confirmed
+    # if Codex started only seconds ago, let it finish starting first: killing it mid-start
+    # can leave its state file without a current seat
+    $started = Get-CodexProcs | ForEach-Object { try { $_.StartTime } catch { $null } } | Where-Object { $_ } | Sort-Object | Select-Object -First 1
+    if ($started) { $wait = 12 - ((Get-Date) - $started).TotalSeconds; if ($wait -gt 0) { Write-Log ("Codex just started; waiting {0:N0} s before closing it" -f $wait); Start-Sleep -Milliseconds ([int]($wait * 1000)) } }
     Get-CodexProcs | Where-Object { $_.MainWindowHandle -ne 0 } | ForEach-Object { [void]$_.CloseMainWindow() }
     Start-Sleep -Milliseconds 800
     if (Get-CodexProcs) {

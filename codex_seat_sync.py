@@ -189,6 +189,9 @@ def cmd_sync(home, src_key, dry, yes, real):
     if real and not dry and codex_running():
         raise Abort("Codex is running. Close Codex completely, then run sync again.")
     d = load(home)
+    if not d[ACC_KEY].get("owner"):
+        raise Abort("Codex had not finished starting, so its current seat was not saved yet. "
+                    "Projects were not synced this time; open Codex, wait a few seconds, then try again.")
     all_seats = seats(d)
     src_id = find_seat(all_seats, src_key)
     src = all_seats[src_id]

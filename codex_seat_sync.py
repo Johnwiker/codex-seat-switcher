@@ -43,26 +43,85 @@ class Abort(Exception):
 
 
 # ---------- reading the state file ----------
+# Codex has used two layouts:
+#   v1 (up to ~26.11.04): the current seat lives at the top level and the other seats are
+#       "parked" under electron-account-renderer-state-v1 = {owner, inactive: {seat: {atoms, globals}}}
+#   v2 (26.11.11+): every seat side by side: electron-owner-atoms:<seat>,
+#       electron-owner-value:<setting>:<seat>, current seat in electron-renderer-content-owner;
+#       the project list itself (local-projects, project-order, ...) is shared by all seats.
+OWNER_KEY_V2 = "electron-renderer-content-owner"
+ATOMS_PREFIX_V2 = "electron-owner-atoms:"
+VALUE_PREFIX_V2 = "electron-owner-value:"
+
+
+def state_format(d):
+    acc = d.get(ACC_KEY)
+    if (isinstance(acc, dict) and "owner" in acc and isinstance(acc.get("inactive"), dict)
+            and isinstance(d.get(ATOMS), dict)):
+        return "v1"
+    if any(k.startswith(ATOMS_PREFIX_V2) for k in d) and OWNER_KEY_V2 in d:
+        return "v2"
+    return None
+
+
 def load(home):
     path = os.path.join(home, STATE)
     with open(path, encoding="utf-8") as f:
         d = json.load(f)
-    acc = d.get(ACC_KEY)
-    if not (isinstance(acc, dict) and "owner" in acc and isinstance(acc.get("inactive"), dict)
-            and isinstance(d.get(ATOMS), dict)):
+    fmt = state_format(d)
+    if fmt is None:
         raise Abort("Unknown Codex state format (maybe after an update). Nothing changed.")
-    for o, v in acc["inactive"].items():
-        if not (isinstance(v, dict) and isinstance(v.get("atoms"), dict) and isinstance(v.get("globals"), dict)):
-            raise Abort(f"Parked seat {o[:8]} has an unknown format. Nothing changed.")
+    if fmt == "v1":
+        for o, v in d[ACC_KEY]["inactive"].items():
+            if not (isinstance(v, dict) and isinstance(v.get("atoms"), dict) and isinstance(v.get("globals"), dict)):
+                raise Abort(f"Parked seat {o[:8]} has an unknown format. Nothing changed.")
+    else:
+        for k, v in d.items():
+            if k.startswith(ATOMS_PREFIX_V2) and not isinstance(v, dict):
+                raise Abort(f"Seat {k[len(ATOMS_PREFIX_V2):][:8]} has an unknown format. Nothing changed.")
     return d
+
+
+def current_owner(d):
+    return d[ACC_KEY].get("owner") if state_format(d) == "v1" else d.get(OWNER_KEY_V2)
+
+
+class OwnerGlobals:
+    """v2: one seat's settings as a dict. A setting stored per seat lives in
+    'electron-owner-value:<setting>:<seat>'; a setting Codex shares between seats
+    (e.g. local-projects) is the top-level key itself, so copying it is a no-op."""
+    def __init__(self, d, owner):
+        self.d, self.owner = d, owner
+
+    def _key(self, k):
+        own = f"{VALUE_PREFIX_V2}{k}:{self.owner}"
+        return own if (own in self.d or k not in self.d) else k
+
+    def __contains__(self, k): return self._key(k) in self.d
+    def __getitem__(self, k): return self.d[self._key(k)]
+    def __setitem__(self, k, v): self.d[self._key(k)] = v
+    def get(self, k, default=None): return self.d.get(self._key(k), default)
+    def pop(self, k, default=None):
+        key = self._key(k)
+        if key == k and not key.startswith(VALUE_PREFIX_V2):   # never delete a shared setting
+            return self.d.get(key, default)
+        return self.d.pop(key, default)
 
 
 def seats(d):
     """Return {owner_id: (atoms_dict, globals_dict, is_active)} as live references."""
-    acc = d[ACC_KEY]
-    out = {acc["owner"]: (d[ATOMS], d, True)}
-    for o, v in acc["inactive"].items():
-        out[o] = (v["atoms"], v["globals"], False)
+    if state_format(d) == "v1":
+        acc = d[ACC_KEY]
+        out = {acc["owner"]: (d[ATOMS], d, True)}
+        for o, v in acc["inactive"].items():
+            out[o] = (v["atoms"], v["globals"], False)
+        return out
+    cur = d.get(OWNER_KEY_V2)
+    out = {}
+    for k, v in d.items():
+        if k.startswith(ATOMS_PREFIX_V2):
+            o = k[len(ATOMS_PREFIX_V2):]
+            out[o] = (v, OwnerGlobals(d, o), o == cur)
     return out
 
 
@@ -189,7 +248,7 @@ def cmd_sync(home, src_key, dry, yes, real):
     if real and not dry and codex_running():
         raise Abort("Codex is running. Close Codex completely, then run sync again.")
     d = load(home)
-    if not d[ACC_KEY].get("owner"):
+    if not current_owner(d):
         raise Abort("Codex had not finished starting, so its current seat was not saved yet. "
                     "Projects were not synced this time; open Codex, wait a few seconds, then try again.")
     all_seats = seats(d)
